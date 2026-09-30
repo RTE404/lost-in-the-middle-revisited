@@ -96,3 +96,27 @@ def test_main_writes_a_plot(tmp_path):
 def test_missing_reduce_output_is_explained(tmp_path):
     with pytest.raises(SystemExit, match="reduce"):
         analyze(tmp_path, "qa20", "pilot")
+
+
+def drop_rows(path, keep):
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    write(path, [r for r in rows if keep(r)])
+
+
+def test_a_control_run_on_a_subset_still_gets_a_curve(tmp_path):
+    synthetic_results(tmp_path, [0.75, 0.55, 0.55, 0.55, 0.70])
+    drop_rows(tmp_path / "toy__mr-qa20-final-pilot.jsonl", lambda r: r["method"] != "control" or r["idx"] % 3 == 0)
+    summary = analyze(tmp_path, "qa20", "pilot")
+    s = summary["models"]["toy"]
+    assert "control" in s["curves"]
+    assert s["curve_n"]["control"] == 200 and s["curve_n"]["mr"] == 600
+    assert "control (n = 200)" in to_markdown(summary)
+
+
+def test_the_gate_uses_the_whole_baseline_not_the_analysed_sample(tmp_path):
+    synthetic_results(tmp_path, [0.75, 0.55, 0.55, 0.55, 0.70])
+    for kind in ("final", "diag"):
+        drop_rows(tmp_path / f"toy__mr-qa20-{kind}-pilot.jsonl", lambda r: r["idx"] < 20)
+    s = analyze(tmp_path, "qa20", "pilot")["models"]["toy"]
+    assert s["n"] == 20 and s["gate_n"] == 600
+    assert s["baseline_verdict"] == "U shape" and s["gate_open"]

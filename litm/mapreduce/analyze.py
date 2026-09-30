@@ -116,14 +116,22 @@ def analyze(results: Path, task: str, sample: str) -> dict:
         B = np.array([[base[(task, p)][i] for p in positions] for i in ids], dtype=float)
         M = matrix(methods["mr"], positions, ids)
         curves = {"baseline": [accuracy_ci(B[:, j]) for j in range(len(positions))]}
+        curve_n = {"baseline": len(ids)}
         for method in METHODS:
-            if all((p, i) in methods.get(method, {}) for p in positions for i in ids):
-                X = matrix(methods[method], positions, ids)
+            # a method run on fewer questions (the control on a seeded subset, spec §7) gets its curve on those
+            method_ids = [i for i in ids if all((p, i) in methods.get(method, {}) for p in positions)]
+            if method_ids:
+                X = matrix(methods[method], positions, method_ids)
                 curves[method] = [accuracy_ci(X[:, j]) for j in range(len(positions))]
-        shape = verdict(B[:, 0], B[:, mid], B[:, -1])["shape"]
+                curve_n[method] = len(method_ids)
+        # spec §2: the gate is decided on the whole baseline, not on the questions map-reduce ran on
+        gate_ids = sorted(set.intersection(*(set(base.get((task, p), {})) for p in positions)))
+        G = np.array([[base[(task, p)][i] for p in positions] for i in gate_ids], dtype=float)
+        shape = verdict(G[:, 0], G[:, mid], G[:, -1])["shape"]
         mr_rows = [methods["mr"][(p, i)] for p in positions for i in ids]
         models[model] = {
             "n": len(ids),
+            "gate_n": len(gate_ids),
             "baseline_verdict": shape,
             "gate_open": shape in GATE_OPEN,
             "non_inferiority": non_inferiority(M, B),
@@ -131,6 +139,7 @@ def analyze(results: Path, task: str, sample: str) -> dict:
             "recovered": recovered_share(B, M, mid),
             "range": {"baseline": range_minus_null(B), "mr": range_minus_null(M)},
             "curves": curves,
+            "curve_n": curve_n,
             "by_slot": by_field(mr_rows, lambda r: r["gold_slot"]),
             "by_mate_rank": by_field(mr_rows, mate_bin),
             "paths": dict(Counter(r["path"] for r in mr_rows)),
@@ -160,10 +169,10 @@ def to_markdown(summary: dict) -> str:
         ni, du, rec = s["non_inferiority"], s["delta_u"], s["recovered"]
         lines += [f"## {model}: **{s['outcome']}** (n = {s['n']} questions)", ""]
         if not s["gate_open"]:
-            lines += [f"> Gate closed: the baseline verdict is *{s['baseline_verdict']}*, so there is no "
+            lines += [f"> Gate closed: the baseline verdict (all {s['gate_n']} baseline questions) is *{s['baseline_verdict']}*, so there is no "
                       "position effect for map-reduce to fix (spec section 2). Report the outcome as moot.", ""]
         lines += [
-            f"- Baseline verdict: {s['baseline_verdict']}",
+            f"- Baseline verdict (gate, all {s['gate_n']} baseline questions): {s['baseline_verdict']}",
             f"- Test 1, non-inferiority (margin {pct(ni['margin'])} pts): MR - baseline = {pct(ni['diff'])} pts "
             f"(95% CI {pct(ni['low'])} to {pct(ni['high'])}), pass after Holm: {ni['holm_pass']}",
             f"- Test 2, flatter: U baseline {pct(du['u_base'])} vs MR {pct(du['u_new'])}; dU = {pct(du['diff'])} pts "
@@ -177,7 +186,9 @@ def to_markdown(summary: dict) -> str:
             "|---|" + "---|" * len(summary["positions"]),
         ]
         for method, points in s["curves"].items():
-            lines.append(f"| {method} | " + " | ".join(pct(a["acc"]) for a in points) + " |")
+            n = s["curve_n"][method]
+            label = method if n == s["n"] else f"{method} (n = {n})"
+            lines.append(f"| {label} | " + " | ".join(pct(a["acc"]) for a in points) + " |")
         for name, a in s["reference"].items():
             lines.append(f"\n{name}: {pct(a['acc'])}")
         lines += ["", "**Accuracy by gold slot inside its group (MR):** "

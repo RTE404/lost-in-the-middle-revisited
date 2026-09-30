@@ -64,17 +64,38 @@ def job_key(prompt: str, params: GenParams) -> str:
 
 
 def load_records(path: Path) -> dict:
-    """{key: record}; a later attempt for the same key replaces an earlier one."""
+    """{key: record}; a later attempt for the same key replaces an earlier one. A last line cut off
+    by a killed session is skipped (its prompt is simply generated again); a bad line elsewhere raises."""
     records = {}
     if path.exists():
         with open(path, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    record = json.loads(line)
-                    old = records.get(record["key"])
-                    if old is None or record["attempt"] >= old["attempt"]:
-                        records[record["key"]] = record
+            lines = [line for line in f if line.strip()]
+        for n, line in enumerate(lines):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                if n == len(lines) - 1 and not line.endswith("\n"):
+                    break
+                raise
+            old = records.get(record["key"])
+            if old is None or record["attempt"] >= old["attempt"]:
+                records[record["key"]] = record
     return records
+
+
+def cut_torn_tail(path: Path) -> None:
+    """Drop a last line left half-written by a killed session, so the next append starts on a fresh line."""
+    data = path.read_bytes()
+    if data and not data.endswith(b"\n"):
+        path.write_bytes(data[:data.rfind(b"\n") + 1])
+
+
+def subset_ids(ids, n):
+    """A seeded n-question subset of `ids`, sorted (spec §7: the control may run on a seeded subset)."""
+    if n is None or n >= len(ids):
+        return list(ids)
+    rng = np.random.default_rng([SEED, n])
+    return sorted(ids[i] for i in rng.choice(len(ids), size=n, replace=False))
 
 
 def run_prompts(gen, path: Path, prompts, params: GenParams, batch_size: int) -> None:
@@ -82,6 +103,7 @@ def run_prompts(gen, path: Path, prompts, params: GenParams, batch_size: int) ->
     A broken output (NaN logprob, only '!') is re-run once, in a later batch."""
     prompts = list(dict.fromkeys(prompts))
     path.touch()  # an empty file still records that the stage ran (reduce checks for it)
+    cut_torn_tail(path)
     done = load_records(path)
     todo = []
     for prompt in prompts:
@@ -147,7 +169,7 @@ def question_groups(items) -> dict:
 
 def control_prompts(args) -> dict:
     """{(position, idx): all documents in one prompt, original order, map prompt wording} (spec §7)."""
-    ids, n_docs, prompts = set(question_ids(args)), int(args.task[2:]), {}
+    ids, n_docs, prompts = set(subset_ids(question_ids(args), args.control_subset)), int(args.task[2:]), {}
     for position in POSITIONS[args.task]:
         for idx, example in enumerate(read_jsonl(qa_path(args.data, position, n_docs))):
             if idx in ids:
@@ -272,7 +294,8 @@ def reduce_task(args) -> None:
                     choice = parse_judge(record["text"], len(built[1]))
                     judged = None if choice is None else built[1][choice]
                 decisions["mr_judge"] = choose_judge(cands, judged)
-            record = controls.get(job_key(control[(position, idx)], CONTROL_PARAMS))
+            prompt = control.get((position, idx))  # absent outside a --control-subset
+            record = controls.get(job_key(prompt, CONTROL_PARAMS)) if prompt else None
             if record is not None:
                 parsed = parse_map_output(record["text"], record["token_logprobs"])
                 decisions["control"] = Decision(parsed.answer, "control", False) if parsed.status == "answer" else ABSTAIN
@@ -323,6 +346,8 @@ def main(argv=None):
     parser.add_argument("--questions", choices=["pilot", "all"], default="pilot")
     parser.add_argument("--limit", type=int, default=None, help="Keep only the first N questions of the sample")
     parser.add_argument("--kv-limit", type=int, default=None, help="Key-value: use the first N examples, as the baseline did")
+    parser.add_argument("--control-subset", type=int, default=None,
+                        help="Control stage: run on a seeded subset of N questions (spec §7); reduce uses whatever control outputs exist")
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--enforce-eager", action="store_true")
     args = parser.parse_args(argv)

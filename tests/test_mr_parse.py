@@ -73,3 +73,10 @@ def test_parse_judge():
     assert parse_judge("**Choice:** [1]", 3) == 0
     assert parse_judge("Choice: 7", 3) is None
     assert parse_judge("I think both", 3) is None
+
+
+def test_p_yes_ignores_non_finite_logprobs():
+    # a twice-broken fp16 yes/no call must not give NaN, which would win or lose every comparison
+    assert p_yes([("Yes", float("nan")), ("No", float("nan"))]) == (0.5, False)
+    value, found = p_yes([("Yes", float("nan")), ("No", math.log(0.5))])
+    assert (value, found) == (0.0, True)

@@ -171,3 +171,40 @@ def test_full_kv_pipeline(tmp_path, fake):
 def test_kv_rejects_qa_only_stages(tmp_path, fake):
     with pytest.raises(SystemExit, match="not used"):
         mr_run.main(cli(tmp_path, "check", "kv300"))
+
+
+def test_resume_after_a_half_written_last_line(tmp_path, fake):
+    mr_run.main(cli(tmp_path, "map"))
+    path = tmp_path / "qwen2.5-3b__mr-map.jsonl"
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    path.write_text("".join(lines[:10]) + lines[10][:40], encoding="utf-8")  # killed mid-write
+    assert len(mr_run.load_records(path)) == 10
+    mr_run.main(cli(tmp_path, "map"))
+    assert len(mr_run.load_records(path)) == 39
+    records = read(path)  # the torn line was cut, not glued to the next record
+    assert len(records) == 39 and len({r["key"] for r in records}) == 39
+
+
+def test_a_bad_line_before_the_end_still_raises(tmp_path):
+    path = tmp_path / "x.jsonl"
+    good = json.dumps({"key": "a", "attempt": 1}) + "\n"
+    path.write_text(good + '{"key": "b", "att\n' + good, encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        mr_run.load_records(path)
+
+
+def test_control_on_a_seeded_subset(tmp_path, fake):
+    run_all(tmp_path, "qa20", "--control-subset", "2")
+    finals = read(tmp_path / "qwen2.5-3b__mr-qa20-final-pilot.jsonl")
+    control_ids = {r["idx"] for r in finals if r["method"] == "control"}
+    all_ids = {r["idx"] for r in finals}
+    assert len(control_ids) == 2 and control_ids < all_ids
+    assert control_ids == set(mr_run.subset_ids(sorted(all_ids), 2))
+
+
+def test_subset_ids_is_seeded_not_the_first_n():
+    ids = list(range(2655))
+    subset = mr_run.subset_ids(ids, 1000)
+    assert len(subset) == 1000 and subset == sorted(subset) and subset != ids[:1000]
+    assert subset == mr_run.subset_ids(ids, 1000)
+    assert mr_run.subset_ids(ids, None) == ids and mr_run.subset_ids(ids[:5], 10) == ids[:5]

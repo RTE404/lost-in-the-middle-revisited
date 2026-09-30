@@ -75,6 +75,8 @@ def p_yes(top: Iterable[Tuple[str, float]]) -> Tuple[float, bool]:
     """P(Yes) / (P(Yes) + P(No)) from the first token's top logprobs; (0.5, False) if neither shows up."""
     yes = no = 0.0
     for token, logprob in top:
+        if not math.isfinite(logprob):  # a broken fp16 output; NaN would win or lose every comparison
+            continue
         word = token.strip().lower()
         if word == "yes":
             yes += math.exp(logprob)
