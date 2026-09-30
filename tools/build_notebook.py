@@ -177,9 +177,13 @@ elif not STAGE.startswith("mr_"):
 def writefile_cells():
     files = [p for p in sorted((ROOT / "litm").rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
     directories = sorted({p.parent.relative_to(ROOT).as_posix() for p in files})
-    cells = [new_code_cell("import os\nfor d in " + repr(directories) + ":\n    os.makedirs(d, exist_ok=True)")]
+    # Jupyter rejects a %%writefile cell with an empty body, so empty files (the __init__.py's) are created here
+    empty = [p.relative_to(ROOT).as_posix() for p in files if not p.read_text(encoding="utf-8").strip()]
+    cells = [new_code_cell("import os\nfor d in " + repr(directories) + ":\n    os.makedirs(d, exist_ok=True)\n"
+                           "for f in " + repr(empty) + ":\n    open(f, \"w\").close()")]
     for path in files:
-        cells.append(new_code_cell(f"%%writefile {path.relative_to(ROOT).as_posix()}\n{path.read_text(encoding='utf-8')}"))
+        if path.relative_to(ROOT).as_posix() not in empty:
+            cells.append(new_code_cell(f"%%writefile {path.relative_to(ROOT).as_posix()}\n{path.read_text(encoding='utf-8')}"))
     return cells
 
 

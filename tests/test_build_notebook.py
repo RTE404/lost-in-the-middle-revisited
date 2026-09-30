@@ -25,3 +25,16 @@ def test_notebook_embeds_the_mapreduce_package_and_compiles():
     everything = "\n".join(code)
     for needle in ('"mr_map"', '"mr_reduce"', '"mr_analyze"', '"qa30"', "rapidfuzz", "MR_GUESSES"):
         assert needle in everything
+
+
+def test_empty_files_are_created_without_an_empty_writefile_cell():
+    # Jupyter rejects a %%writefile cell with no body ("the cell body is empty"), which stopped the first Kaggle run
+    nb = load_builder().build()
+    code = [c.source for c in nb.cells if c.cell_type == "code"]
+    for source in code:
+        if source.startswith("%%writefile"):
+            assert source.split("\n", 1)[1:] and source.split("\n", 1)[1].strip(), source.splitlines()[0]
+    setup = "\n".join(code)
+    for path in ("litm/__init__.py", "litm/mapreduce/__init__.py", "litm/vendor/__init__.py",
+                 "litm/vendor/lost_in_the_middle/__init__.py"):
+        assert repr(path) in setup
