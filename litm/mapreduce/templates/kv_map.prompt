@@ -1,0 +1,9 @@
+Extract the value corresponding to the specified key in the JSON object below. If the key is not in the JSON object, write NOT FOUND.
+
+JSON data:
+{formatted_kv_records}
+
+Key: "{key}"
+Reply in exactly this format:
+Value: <the value, or NOT FOUND>
+Evidence: <copy the "key": "value" pair from the JSON object>

@@ -1,0 +1,7 @@
+Question: {question}
+
+Candidate answers, each with the sentence it came from:
+{candidates}
+
+Which candidate answers the question correctly? Reply in exactly this format:
+Choice: <candidate number>

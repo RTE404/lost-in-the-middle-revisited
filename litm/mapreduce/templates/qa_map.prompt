@@ -1,0 +1,8 @@
+Write a high-quality answer for the given question using only the provided search results (some of which might be irrelevant). If none of the search results contain the answer, write NOT FOUND.
+
+{search_results}
+
+Question: {question}
+Reply in exactly this format:
+Answer: <short answer, or NOT FOUND>
+Evidence: <copy the sentence from the documents that contains the answer>

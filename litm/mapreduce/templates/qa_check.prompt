@@ -1,0 +1,4 @@
+Question: {question}
+Sentence: {evidence}
+Proposed answer: {answer}
+Does the sentence show that the proposed answer is correct? Answer Yes or No.
