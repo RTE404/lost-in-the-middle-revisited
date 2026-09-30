@@ -3,6 +3,7 @@ numpy>=2
 pydantic>=2
 regex
 xopen
+rapidfuzz
 matplotlib
 pytest
 nbformat
