@@ -1,0 +1,12 @@
+# Local: scoring, statistics, tests, notebook build (CPU only)
+numpy>=2
+pydantic>=2
+regex
+xopen
+matplotlib
+pytest
+nbformat
+transformers>=4.56,<5  # only for measuring prompt lengths locally
+
+# GPU runs happen on Kaggle in an isolated environment (see notebooks/litm_kaggle.ipynb):
+#   vllm==0.18.1 (pins torch==2.10.0)

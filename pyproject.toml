@@ -1,0 +1,8 @@
+[project]
+name = "litm"
+version = "0.1.0"
+description = "Free-tier reproduction of 'Lost in the Middle' (Liu et al., TACL 2024)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
