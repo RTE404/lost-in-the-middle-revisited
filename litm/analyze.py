@@ -7,7 +7,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from litm.data import KV_MIDDLE, KV_POSITIONS, QA_MIDDLE, QA_POSITIONS
+from litm.data import KV_MIDDLE, KV_POSITIONS, QA30_MIDDLE, QA30_POSITIONS, QA_MIDDLE, QA_POSITIONS
 from litm.scoring import score
 from litm.stats import accuracy_ci, verdict
 
@@ -16,7 +16,8 @@ PAPER_QA20 = {
     "gpt-3.5-turbo-0613 (paper)": [75.8, 57.2, 53.8, 55.4, 63.2],
     "llama-2-70b-chat (authors' repo)": [56.8, 53.3, 54.1, 59.7, 69.5],
 }
-CURVES = {"qa20": (QA_POSITIONS, QA_MIDDLE), "kv300": (KV_POSITIONS, KV_MIDDLE)}
+CURVES = {"qa20": (QA_POSITIONS, QA_MIDDLE), "qa30": (QA30_POSITIONS, QA30_MIDDLE), "kv300": (KV_POSITIONS, KV_MIDDLE)}
+TITLES = {"qa20": "20 documents", "qa30": "30 documents", "kv300": "300 key-value pairs"}
 
 
 def load_scores(results_dir: Path, tag: str = "") -> dict:
@@ -111,7 +112,7 @@ def plot(summary: dict, out_dir: Path) -> None:
             y = [100 * a["acc"] for a in points]
             err = [[100 * (a["acc"] - a["low"]) for a in points], [100 * (a["high"] - a["acc"]) for a in points]]
             line = ax.errorbar(x, y, yerr=err, marker="o", capsize=3, label=model)
-            if task == "qa20":
+            if task.startswith("qa"):
                 for baseline, style in (("closedbook", ":"), ("oracle", "--")):
                     if baseline in s["accuracy"]:
                         ax.axhline(100 * s["accuracy"][baseline]["acc"], ls=style, color=line[0].get_color(), alpha=0.6,
@@ -120,9 +121,9 @@ def plot(summary: dict, out_dir: Path) -> None:
             for name, y in PAPER_QA20.items():
                 ax.plot(x, y, marker=".", color="grey", alpha=0.5, ls="-.", label=name)
         ax.set_xticks(x)
-        ax.set_xlabel("Position of the answer" if task == "qa20" else "Position of the key")
+        ax.set_xlabel("Position of the answer" if task.startswith("qa") else "Position of the key")
         ax.set_ylabel("Accuracy (%)")
-        ax.set_title("20 documents" if task == "qa20" else "300 key-value pairs")
+        ax.set_title(TITLES[task])
         ax.legend(fontsize=7)
         fig.tight_layout()
         fig.savefig(out_dir / f"{task}.png", dpi=150)

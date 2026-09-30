@@ -23,8 +23,12 @@ AUTHORS_COMMIT = "29b8a6d042ce29abccee3db1a73171a107d7e6af"
 
 QA_POSITIONS = [0, 4, 9, 14, 19]  # 0-based; paper positions 1, 5, 10, 15, 20
 KV_POSITIONS = [0, 74, 149, 224, 299]  # 0-based; positions 1, 75, 150, 225, 300
+QA30_POSITIONS = [0, 4, 9, 14, 19, 24, 29]  # 0-based; the authors' 30-document files
 QA_MIDDLE = 9
 KV_MIDDLE = 149
+QA30_MIDDLE = 14
+POSITIONS = {"qa20": QA_POSITIONS, "qa30": QA30_POSITIONS, "kv300": KV_POSITIONS}
+MIDDLES = {"qa20": QA_MIDDLE, "qa30": QA30_MIDDLE, "kv300": KV_MIDDLE}
 
 
 def read_jsonl(path) -> List[dict]:
@@ -32,8 +36,8 @@ def read_jsonl(path) -> List[dict]:
         return [json.loads(line) for line in f]
 
 
-def qa_path(root: Path, gold_index: int) -> Path:
-    return root / "qa_data" / "20_total_documents" / f"nq-open-20_total_documents_gold_at_{gold_index}.jsonl.gz"
+def qa_path(root: Path, gold_index: int, n_docs: int = 20) -> Path:
+    return root / "qa_data" / f"{n_docs}_total_documents" / f"nq-open-{n_docs}_total_documents_gold_at_{gold_index}.jsonl.gz"
 
 
 def oracle_path(root: Path) -> Path:
@@ -61,8 +65,8 @@ def check_qa_alignment(root: Path) -> int:
 
 
 def qa_items(root: Path, task: str, position=None, query_aware: bool = False) -> Iterator[Dict]:
-    """task is 'closedbook', 'oracle' or 'qa20'; position is the 0-based gold index for 'qa20'."""
-    path = qa_path(root, position) if task == "qa20" else oracle_path(root)
+    """task is 'closedbook', 'oracle', 'qa20' or 'qa30'; position is the 0-based gold index for qa20/qa30."""
+    path = qa_path(root, position, int(task[2:])) if task in ("qa20", "qa30") else oracle_path(root)
     for idx, example in enumerate(read_jsonl(path)):
         if task == "closedbook":
             prompt = get_closedbook_qa_prompt(example["question"])
@@ -101,13 +105,13 @@ def kv_items(root: Path, position: int, n_keys: int = 300, limit=None, query_awa
 
 
 def all_items(root: Path, tasks: List[str], kv_limit=None) -> List[Dict]:
-    """Build every item for the named tasks: closedbook, oracle, qa20, kv300."""
+    """Build every item for the named tasks: closedbook, oracle, qa20, qa30, kv300."""
     items = []
     for task in tasks:
         if task in ("closedbook", "oracle"):
             items.extend(qa_items(root, task))
-        elif task == "qa20":
-            for position in QA_POSITIONS:
+        elif task in ("qa20", "qa30"):
+            for position in POSITIONS[task]:
                 items.extend(qa_items(root, task, position))
         elif task == "kv300":
             for position in KV_POSITIONS:
