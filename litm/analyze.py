@@ -4,6 +4,7 @@
 """
 import argparse
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -97,6 +98,9 @@ def to_markdown(summary: dict) -> str:
 
 
 def plot(summary: dict, out_dir: Path) -> None:
+    # Kaggle's notebook kernel exports MPLBACKEND=module://matplotlib_inline.backend_inline, which this
+    # environment's matplotlib rejects at import time; plots are only ever written to files.
+    os.environ["MPLBACKEND"] = "Agg"
     import matplotlib
 
     matplotlib.use("Agg")
