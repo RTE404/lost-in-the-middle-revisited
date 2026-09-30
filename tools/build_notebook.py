@@ -25,13 +25,20 @@ analysis: see the repository README.
 Stages, in order: `smoke` → `pilot` → `qa` → `kv` → `rerun`. To resume or continue from an
 earlier version, attach that version's output as an input (*Add Input → Your Work*); its
 `results/` files are copied in and finished prompts are skipped.
+
+**Map-reduce fix (phase A):** only after the baseline shows a position effect (spec §2; `qa30` is
+the second setting to try). Set `MR_TASK` and `MR_SAMPLE`, then run `mr_map` → `mr_check` →
+`mr_judge` → `mr_control` → `mr_reduce` → `mr_analyze`. Pilot first (`MR_SAMPLE = "pilot"`),
+freeze the thresholds, then repeat with `"all"`.
 """
 
 CONFIG = """\
-STAGE = "smoke"   # smoke | pilot | qa | kv | rerun | analyze
+STAGE = "smoke"   # smoke | pilot | qa | qa30 | kv | rerun | analyze | mr_map | mr_check | mr_judge | mr_control | mr_reduce | mr_analyze
 KV_LIMIT = 200    # key-value examples per position: 200 first; 500 if >5% of answers flip (plan §3)
 MAX_MODEL_LEN = 20608  # longest measured prompt 20,458 tokens + 100 new tokens
 ENFORCE_EAGER = False  # set True if CUDA-graph capture fails on the T4
+MR_TASK = "qa20"       # map-reduce task: qa20 | qa30 | kv300, the first with a baseline position effect (spec §2)
+MR_SAMPLE = "pilot"    # "pilot" (200 seeded questions) first; "all" once thresholds are frozen (spec §8)
 """
 
 GUESSES = """\
@@ -40,6 +47,8 @@ GUESSES = {
     "qwen2.5-3b":    {"qa20": "?", "kv300": "?"},   # U shape | Primacy only | Recency only | Flat
     "qwen3-4b-2507": {"qa20": "?", "kv300": "?"},
 }
+# Map-reduce (spec §6), also before its first run: Works | Flatter but worse | No effect
+MR_GUESSES = {"qwen2.5-3b": "?", "qwen3-4b-2507": "?"}
 """
 
 SETUP = """\
@@ -58,7 +67,7 @@ def sh(cmd):
 if not os.path.exists(f"{VENV}/bin/python"):
     sh("pip install -q uv")
     sh(f"uv venv -q {VENV} --python 3.12")
-    sh(f"uv pip install -q --python {VENV}/bin/python vllm==0.18.1 pydantic regex xopen numpy matplotlib")
+    sh(f"uv pip install -q --python {VENV}/bin/python vllm==0.18.1 pydantic regex xopen numpy matplotlib rapidfuzz")
 PY = f"{VENV}/bin/python"
 
 # The authors' data and code at a pinned commit.
@@ -82,25 +91,26 @@ STAGES = {
     "smoke": (["--qa-limit", "2", "--kv-limit", "1"], "smoke", ["closedbook", "oracle", "qa20", "kv300"]),
     "pilot": (["--qa-limit", "20", "--kv-limit", "4"], "pilot", ["closedbook", "oracle", "qa20", "kv300"]),
     "qa":    ([], "", ["closedbook", "oracle", "qa20"]),
+    "qa30":  ([], "", ["qa30"]),
     "kv":    (["--kv-limit", str(KV_LIMIT)], "", ["kv300"]),
     "rerun": (["--qa-limit", "300", "--kv-limit", "50"], "rerun", ["qa20", "kv300"]),
 }
+MR_STAGES = ["mr_map", "mr_check", "mr_judge", "mr_control"]  # GPU; mr_reduce and mr_analyze run on CPU
 MODELS = ["qwen2.5-3b", "qwen3-4b-2507"]  # model i runs on GPU i
+MR_ARGS = ["--task", MR_TASK, "--questions", MR_SAMPLE, "--data", AUTHORS, "--out", "results"]
+if MR_TASK.startswith("kv"):
+    MR_ARGS += ["--kv-limit", str(KV_LIMIT)]  # the same examples as the baseline
 
-if STAGE in STAGES:
-    extra, tag, tasks = STAGES[STAGE]
+def launch(commands):
+    # Run one (model, command, log file) per GPU in parallel; report progress every 5 minutes.
     procs = []
-    for gpu, model in enumerate(MODELS):
-        cmd = [PY, "-m", "litm.run", "--model", model, "--tasks", *tasks, "--data", AUTHORS,
-               "--out", "results", "--max-model-len", str(MAX_MODEL_LEN), *extra]
-        if tag:
-            cmd += ["--tag", tag]
+    for gpu, (model, cmd, log_name) in enumerate(commands):
         if ENFORCE_EAGER:
-            cmd.append("--enforce-eager")
-        log = open(f"results/{model}{'__' + tag if tag else ''}.{STAGE}.log", "a")
+            cmd = [*cmd, "--enforce-eager"]
+        log = open(log_name, "a")
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu), "PYTHONPATH": WORK}
-        procs.append((model, log.name, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)))
-        print(f"GPU {gpu}: {model} -> {log.name}")
+        procs.append((model, log_name, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)))
+        print(f"GPU {gpu}: {model} -> {log_name}")
     started = time.time()
     while any(p.poll() is None for _, _, p in procs):
         time.sleep(300)
@@ -112,11 +122,35 @@ if STAGE in STAGES:
         print(f"{model}: exit code {p.returncode}")
         if p.returncode != 0:
             print("".join(open(log_name).readlines()[-40:]))
+
+if STAGE in STAGES:
+    extra, tag, tasks = STAGES[STAGE]
+    commands = []
+    for model in MODELS:
+        cmd = [PY, "-m", "litm.run", "--model", model, "--tasks", *tasks, "--data", AUTHORS,
+               "--out", "results", "--max-model-len", str(MAX_MODEL_LEN), *extra]
+        if tag:
+            cmd += ["--tag", tag]
+        commands.append((model, cmd, f"results/{model}{'__' + tag if tag else ''}.{STAGE}.log"))
+    launch(commands)
+elif STAGE in MR_STAGES:
+    stage = STAGE[len("mr_"):]
+    launch([(model, [PY, "-m", "litm.mapreduce.run", "--model", model, "--stage", stage, *MR_ARGS],
+             f"results/{model}__mr-{stage}.{MR_TASK}-{MR_SAMPLE}.log") for model in MODELS])
+elif STAGE == "mr_reduce":
+    for model in MODELS:
+        sh(" ".join([f"PYTHONPATH={WORK}", PY, "-m", "litm.mapreduce.run", "--model", model, "--stage", "reduce", *MR_ARGS]))
 """
 
 INSPECT = """\
 # Smoke/pilot check: read the outputs by hand before any full run.
 import json
+if STAGE == "mr_map":  # spec §8: read 20 raw map outputs per model before the full run
+    for model in MODELS:
+        print("=" * 30, model)
+        with open(f"results/{model}__mr-map.jsonl") as f:
+            for line, _ in zip(f, range(20)):
+                print(repr(json.loads(line)["text"][:300]))
 if STAGE in ("smoke", "pilot"):
     for model in MODELS:
         path = f"results/{model}__{STAGE}.jsonl"
@@ -131,8 +165,12 @@ if STAGE in ("smoke", "pilot"):
 """
 
 ANALYZE = """\
-tag_args = ["--tag", STAGES[STAGE][1]] if STAGE in STAGES and STAGES[STAGE][1] else []
-sh(" ".join([f"PYTHONPATH={WORK}", PY, "-m", "litm.analyze", "results", "--out", "analysis", *tag_args]))
+if STAGE == "mr_analyze":
+    sh(" ".join([f"PYTHONPATH={WORK}", PY, "-m", "litm.mapreduce.analyze", "results",
+                 "--task", MR_TASK, "--sample", MR_SAMPLE, "--out", "analysis"]))
+elif not STAGE.startswith("mr_"):
+    tag_args = ["--tag", STAGES[STAGE][1]] if STAGE in STAGES and STAGES[STAGE][1] else []
+    sh(" ".join([f"PYTHONPATH={WORK}", PY, "-m", "litm.analyze", "results", "--out", "analysis", *tag_args]))
 """
 
 
@@ -145,7 +183,7 @@ def writefile_cells():
     return cells
 
 
-def main():
+def build():
     nb = new_notebook()
     nb.cells = [
         new_markdown_cell(INTRO),
@@ -163,6 +201,11 @@ def main():
         new_code_cell(ANALYZE),
     ]
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
+    return nb
+
+
+def main():
+    nb = build()
     out = ROOT / "notebooks" / "litm_kaggle.ipynb"
     out.parent.mkdir(exist_ok=True)
     nbformat.write(nb, out)

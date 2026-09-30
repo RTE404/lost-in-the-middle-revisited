@@ -7,6 +7,7 @@ This repo re-runs the position experiment of *Lost in the Middle* (Liu et al., T
 
 - Plan and pre-registered analysis: [`lost-in-the-middle-plan.md`](lost-in-the-middle-plan.md)
 - Fact-check of the plan against current sources: [`reports/Lost in the middle plan check.md`](reports/Lost%20in%20the%20middle%20plan%20check.md)
+- Map-reduce fix (phase A) design: [`docs/superpowers/specs/2026-09-30-map-reduce-fix-design.md`](docs/superpowers/specs/2026-09-30-map-reduce-fix-design.md); audit behind it: [`reports/Lost in middle map reduce audit.md`](reports/Lost%20in%20middle%20map%20reduce%20audit.md)
 - Results: *not yet run*
 
 ## What runs
@@ -31,6 +32,8 @@ litm/
   stats.py       # paired bootstrap, exact McNemar, Holm, MDE, shape verdict
   run.py         # vLLM runner, one model per GPU, resumable
   analyze.py     # tables, verdicts, figures, rerun check (CPU)
+  generate.py    # generate(prompts, params) interface; greedy fp16 vLLM backend with logprobs
+  mapreduce/     # split -> map prompt -> parse -> verify -> choose; run.py (stages), analyze.py
   vendor/        # authors' prompting.py, metrics.py, prompts/ (MIT)
 notebooks/litm_kaggle.ipynb   # self-contained Kaggle notebook (built by tools/build_notebook.py)
 tests/                        # scoring vs authors', statistics, data alignment
@@ -65,3 +68,25 @@ is not bit-identical across GPUs and library versions).
   prompt (the authors likewise kept Llama-2's).
 - QA scoring strips leading whitespace before taking the first line.
 - Key-value: 300 pairs only, 5 positions, 200 or 500 examples.
+
+## Map-reduce fix (phase A)
+
+Answers the same questions from 4-document groups instead of one long prompt. Each group
+answers with a quoted evidence sentence; answers whose quote is not in that group's documents
+are dropped; the remaining candidates are scored by one shared yes/no prompt and the best is
+kept. Run it only on a setting where the baseline shows a position effect (20 documents, then
+30, then key-value).
+
+Kaggle: set `MR_TASK` and `MR_SAMPLE`, then run `mr_map` → `mr_check` → `mr_judge` →
+`mr_control` → `mr_reduce` → `mr_analyze`. Pilot (200 questions) first; freeze the thresholds
+in `litm/mapreduce/verify.py` and the 150-token limit in `litm/mapreduce/run.py`; then run
+with `MR_SAMPLE = "all"`. Map outputs are keyed by prompt, so the full run reuses the pilot's.
+
+Locally, from saved outputs:
+
+    python -m litm.mapreduce.run --model qwen2.5-3b --task qa20 --stage reduce --data third_party/lost-in-the-middle --out results --questions all
+    python -m litm.mapreduce.analyze results --task qa20 --sample all --out analysis
+
+Pass rules (pre-registered): accuracy averaged over positions no more than 2 points below the
+baseline (lower 95% CI bound), **and** a flatter curve (the U contrast, first and last versus
+the middle positions, drops with a CI above 0), Holm-corrected across the two models.
