@@ -41,6 +41,7 @@ def synthetic_results(tmp_path, base_probs, n=600):
                               "verified": gold, "verify_how": "exact" if gold else "", "finish_reason": "stop",
                               "attempt": 1, "cand_correct": int(gold and idx % 3 > 0),
                               "p_yes": (0.9 if idx % 3 else 0.2) if gold else None,
+                              "p_yes_found": (idx % 5 > 0) if gold else None,
                               "logprob": -0.5 if gold else None})
     write(tmp_path / "toy.jsonl", base)
     write(tmp_path / "toy__mr-qa20-final-pilot.jsonl", finals)
@@ -57,6 +58,7 @@ def test_a_flat_non_inferior_map_reduce_works(tmp_path):
     assert set(s["curves"]) == {"baseline", *MR_METHODS}
     assert s["diagnostics"]["not_found_gold_free"] == 1.0
     assert s["diagnostics"]["auroc_p_yes"] == 1.0
+    assert s["diagnostics"]["p_yes_not_found"] == pytest.approx(0.2)  # idx % 5 == 0 of the scored rows
     assert set(s["by_slot"]) == {"0", "1", "2", "3"}
     assert "closedbook" in s["reference"]
     assert s["secondary"]["baseline"]["answer_words"] == 1.0

@@ -23,6 +23,7 @@ needs_data = pytest.mark.skipif(not ROOT.exists(), reason="authors' repo not che
 def test_group_sizes():
     assert group_sizes(20, 4) == [4] * 5
     assert group_sizes(30, 4) == [4] * 6 + [3] * 2
+    assert group_sizes(30, 6) == [6] * 5
     assert group_sizes(300, 20) == [20] * 15
 
 
@@ -86,10 +87,12 @@ def test_qa_map_items_structure_and_dedupe():
 
 
 @needs_data
-def test_qa30_items_use_uneven_groups():
-    items = qa_map_items(ROOT, 30, [29], [0])
-    assert [len(i["docs"]) for i in items] == [4] * 6 + [3] * 2
-    assert [i["group"] for i in items if i["is_gold_group"]] == [7]
+def test_qa30_items_use_five_groups_of_six():
+    # Uneven groups (6x4 + 2x3) would give the last positions an easier gold group (review issue 2)
+    items = qa_map_items(ROOT, 30, [0, 29], [0, 1, 2, 3, 4, 5])
+    assert [len(i["docs"]) for i in items if i["position"] == 29 and i["idx"] == 0] == [6] * 5
+    assert {i["group"] for i in items if i["is_gold_group"] and i["position"] == 29} == {4}
+    assert {i["gold_slot"] for i in items if i["is_gold_group"]} <= set(range(6))
 
 
 @needs_data

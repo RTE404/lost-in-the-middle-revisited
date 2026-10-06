@@ -17,13 +17,13 @@ from litm.data import kv_path, qa_path, read_jsonl
 from litm.vendor.lost_in_the_middle.metrics import normalize_answer
 
 SEED = 0
-QA_GROUP_SIZE = 4
+QA_GROUP_SIZES = {20: 4, 30: 6}  # even groups only: 30 as 6x4 + 2x3 would give the last positions an easier gold group
 KV_GROUP_SIZE = 20
 PILOT_SIZE = 200
 
 
 def group_sizes(n_items: int, group_size: int) -> List[int]:
-    """As even as possible, none above group_size: 20 -> 5x4, 30 -> 6x4 + 2x3, 300 -> 15x20."""
+    """As even as possible, none above group_size: 20 -> 5x4, 30 -> 5x6, 300 -> 15x20."""
     n_groups = ceil(n_items / group_size)
     base, extra = divmod(n_items, n_groups)
     return [base + 1] * extra + [base] * (n_groups - extra)
@@ -83,7 +83,7 @@ def sample_ids(n_total: int, sample: str, limit=None, seed: int = SEED) -> List[
 def qa_map_items(root: Path, n_docs: int, positions: Sequence[int], question_ids: Sequence[int]) -> List[Dict]:
     """One item per (position, question, group), read from the authors' files."""
     task = f"qa{n_docs}"
-    sizes = group_sizes(n_docs, QA_GROUP_SIZE)
+    sizes = group_sizes(n_docs, QA_GROUP_SIZES[n_docs])
     items = []
     for position in positions:
         examples = read_jsonl(qa_path(root, position, n_docs))

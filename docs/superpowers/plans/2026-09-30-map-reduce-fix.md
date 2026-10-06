@@ -3070,7 +3070,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ## After the code: the Kaggle runbook (not agent tasks; the user runs these)
 
 1. **Gate (spec §2).** Run the baseline `qa` stage. If its 20-document verdict isn't U, Primacy or Recency, run `qa30`. If that is also flat, check the key-value verdict. Record which setting qualifies as `MR_TASK`.
-2. **Smoke.** Set `MR_SAMPLE = "pilot"` and run `mr_map` once with a small `--limit` by adding `"--limit", "5"` to `MR_ARGS` temporarily. Confirm that outputs start with `Answer:` and that logprobs are present (`token_logprobs` is non-empty). This also confirms that `decoded_token` is populated in vLLM 0.18.1.
+2. **Smoke.** Set `MR_SAMPLE = "pilot"` and run `mr_map` once with `MR_LIMIT = 5` (set it back to `None` afterwards). Confirm that outputs start with `Answer:` and that logprobs are present (`token_logprobs` is non-empty). This also confirms that `decoded_token` is populated in vLLM 0.18.1.
 3. **Pilot.** Run `mr_map` → `mr_check` → `mr_judge` → `mr_control` → `mr_reduce` → `mr_analyze` on the 200-question pilot. Read the 20 raw outputs that `INSPECT` prints. Check the diagnostics:
    - format compliance of at least 95% (invalid under 5%);
    - truncation: if over 1%, raise `MAP_PARAMS` to 200 tokens;

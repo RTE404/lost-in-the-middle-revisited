@@ -39,13 +39,15 @@ MAX_MODEL_LEN = 20608  # longest measured prompt 20,458 tokens + 100 new tokens
 ENFORCE_EAGER = False  # set True if CUDA-graph capture fails on the T4
 MR_TASK = "qa20"       # map-reduce task: qa20 | qa30 | kv300, the first with a baseline position effect (spec §2)
 MR_SAMPLE = "pilot"    # "pilot" (200 seeded questions) first; "all" once thresholds are frozen (spec §8)
+MR_LIMIT = None        # smoke: e.g. 5 keeps the first 5 questions of the sample (runbook step 2); None otherwise
+MR_CONTROL_SUBSET = None  # quota fallback (spec §7): e.g. 500 runs the control on a seeded subset; None = every question
 """
 
 GUESSES = """\
 # Pre-registered guesses (plan §5): write these BEFORE the first qa/kv run and do not edit afterwards.
 GUESSES = {
-    "qwen2.5-3b":    {"qa20": "?", "kv300": "?"},   # U shape | Primacy only | Recency only | Flat
-    "qwen3-4b-2507": {"qa20": "?", "kv300": "?"},
+    "qwen2.5-3b":    {"qa20": "?", "qa30": "?", "kv300": "?"},   # U shape | Primacy only | Recency only | Flat
+    "qwen3-4b-2507": {"qa20": "?", "qa30": "?", "kv300": "?"},
 }
 # Map-reduce (spec §6), also before its first run: Works | Flatter but worse | No effect
 MR_GUESSES = {"qwen2.5-3b": "?", "qwen3-4b-2507": "?"}
@@ -100,6 +102,10 @@ MODELS = ["qwen2.5-3b", "qwen3-4b-2507"]  # model i runs on GPU i
 MR_ARGS = ["--task", MR_TASK, "--questions", MR_SAMPLE, "--data", AUTHORS, "--out", "results"]
 if MR_TASK.startswith("kv"):
     MR_ARGS += ["--kv-limit", str(KV_LIMIT)]  # the same examples as the baseline
+if MR_LIMIT is not None:
+    MR_ARGS += ["--limit", str(MR_LIMIT)]
+if MR_CONTROL_SUBSET is not None:
+    MR_ARGS += ["--control-subset", str(MR_CONTROL_SUBSET)]  # reduce then uses the control outputs that exist
 
 def launch(commands):
     # Run one (model, command, log file) per GPU in parallel; report progress every 5 minutes.

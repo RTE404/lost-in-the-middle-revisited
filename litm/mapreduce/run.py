@@ -43,7 +43,7 @@ MAP_PARAMS = GenParams(max_tokens=150, logprobs=1)
 CHECK_PARAMS = GenParams(max_tokens=1, logprobs=20)
 JUDGE_PARAMS = GenParams(max_tokens=10, logprobs=1)
 CONTROL_PARAMS = MAP_PARAMS
-SHORT_MAX_LEN = 2048    # map, check and judge prompts are under 1.5K tokens
+SHORT_MAX_LEN = 2048    # map, check and judge prompts are at most 1.5K tokens (6-document qa30 groups)
 CONTROL_MAX_LEN = 8192  # 20 or 30 documents in one prompt (about 3.1K / 4.7K tokens)
 GPU_STAGES = ("map", "check", "judge", "control")
 QA_ONLY_STAGES = ("check", "judge", "control")
@@ -65,18 +65,16 @@ def job_key(prompt: str, params: GenParams) -> str:
 
 def load_records(path: Path) -> dict:
     """{key: record}; a later attempt for the same key replaces an earlier one. A last line cut off
-    by a killed session is skipped (its prompt is simply generated again); a bad line elsewhere raises."""
+    by a killed session (no final newline, possibly mid-character) is skipped, so its prompt is
+    simply generated again; a bad line elsewhere raises."""
     records = {}
     if path.exists():
-        with open(path, encoding="utf-8") as f:
-            lines = [line for line in f if line.strip()]
-        for n, line in enumerate(lines):
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                if n == len(lines) - 1 and not line.endswith("\n"):
-                    break
-                raise
+        data = path.read_bytes()
+        text = data[:data.rfind(b"\n") + 1].decode("utf-8")
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
             old = records.get(record["key"])
             if old is None or record["attempt"] >= old["attempt"]:
                 records[record["key"]] = record
@@ -203,11 +201,13 @@ def collect(groups, maps: dict):
     return cands, rows
 
 
-def lookup_p_yes(checks: dict, question: str, cand: Candidate) -> float:
+def lookup_p_yes(checks: dict, question: str, cand: Candidate) -> Candidate:
+    """`cand` with P(Yes) filled in; p_yes_found is False when neither Yes nor No was in the top tokens (0.5 then)."""
     record = checks.get(job_key(check_prompt(question, cand.evidence, cand.answer), CHECK_PARAMS))
     if record is None:
         raise SystemExit(f"Missing yes/no output for {cand.answer!r}: run --stage check first")
-    return p_yes(record["first_top"])[0]
+    value, found = p_yes(record["first_top"])
+    return dataclasses.replace(cand, p_yes=value, p_yes_found=found)
 
 
 def judge_prompt_for(question: str, cands, position: int, idx: int):
@@ -275,7 +275,7 @@ def reduce_task(args) -> None:
 
         cands, rows = collect(groups, maps)
         if not kv:
-            cands = [c if c.hedged else dataclasses.replace(c, p_yes=lookup_p_yes(checks, question, c)) for c in cands]
+            cands = [c if c.hedged else lookup_p_yes(checks, question, c) for c in cands]
         gold_item, _, gold_parsed, _ = next(row for row in rows if row[0]["is_gold_group"])
         decisions = {"gold_group": Decision(gold_parsed.answer, "gold_group", False)
                      if gold_parsed.status == "answer" else ABSTAIN}
@@ -322,7 +322,8 @@ def reduce_task(args) -> None:
                 "verified": bool(verdict and verdict.verified), "verify_how": verdict.how if verdict else "",
                 "finish_reason": record["finish_reason"], "attempt": record["attempt"],
                 "cand_correct": score(Decision(parsed.answer, "", False)) if parsed.status == "answer" else 0,
-                "p_yes": cand.p_yes if cand else None, "logprob": cand.logprob if cand else None,
+                "p_yes": cand.p_yes if cand else None, "p_yes_found": cand.p_yes_found if cand else None,
+                "logprob": cand.logprob if cand else None,
             })
 
     for kind, rows in (("final", finals), ("diag", diags)):

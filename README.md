@@ -71,7 +71,8 @@ is not bit-identical across GPUs and library versions).
 
 ## Map-reduce fix (phase A)
 
-Answers the same questions from 4-document groups instead of one long prompt. Each group
+Answers the same questions from 4-document groups (6-document groups for 30 documents, so every group
+is the same size) instead of one long prompt. Each group
 answers with a quoted evidence sentence; answers whose quote is not in that group's documents
 are dropped; the remaining candidates are scored by one shared yes/no prompt and the best is
 kept. Run it only on a setting where the baseline shows a position effect (20 documents, then
@@ -80,7 +81,9 @@ kept. Run it only on a setting where the baseline shows a position effect (20 do
 Kaggle: set `MR_TASK` and `MR_SAMPLE`, then run `mr_map` → `mr_check` → `mr_judge` →
 `mr_control` → `mr_reduce` → `mr_analyze`. Pilot (200 questions) first; freeze the thresholds
 in `litm/mapreduce/verify.py` and the 150-token limit in `litm/mapreduce/run.py`; then run
-with `MR_SAMPLE = "all"`. Map outputs are keyed by prompt, so the full run reuses the pilot's.
+with `MR_SAMPLE = "all"`. Map outputs are keyed by prompt and token limit, so the full run reuses the pilot's as long as the
+token limit is unchanged. `MR_LIMIT` runs a quick smoke on the first few questions; `MR_CONTROL_SUBSET`
+runs the control on a seeded subset if GPU quota runs short.
 
 Locally, from saved outputs:
 

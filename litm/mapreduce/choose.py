@@ -18,6 +18,7 @@ class Candidate:
     verified: bool
     hedged: bool
     p_yes: Optional[float] = None    # from the shared yes/no prompt (primary rule)
+    p_yes_found: Optional[bool] = None  # False: neither Yes nor No in the top tokens, p_yes is a 0.5 stand-in
     logprob: Optional[float] = None  # mean answer-token logprob (sensitivity rule)
 
 

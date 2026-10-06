@@ -70,6 +70,8 @@ def diagnostics(rows) -> dict:
         "hedged": share(rows, lambda r: r["hedged"]),
         "truncated": share(rows, lambda r: r["finish_reason"] == "length"),
         "retried": share(rows, lambda r: r["attempt"] > 1),
+        "p_yes_not_found": share([r for r in rows if r.get("p_yes_found") is not None],
+                                 lambda r: not r["p_yes_found"]),
         "auroc_p_yes": signal("p_yes"),
         "auroc_logprob": signal("logprob"),
     }

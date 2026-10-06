@@ -144,6 +144,22 @@ def test_full_qa_pipeline(tmp_path, fake):
     diags = read(tmp_path / "qwen2.5-3b__mr-qa20-diag-pilot.jsonl")
     assert len(diags) == 3 * 5 * 5
     assert sum(d["is_gold_group"] for d in diags) == 3 * 5
+    for d in diags:
+        assert d["p_yes_found"] is (True if d["p_yes"] is not None else None)
+
+
+def test_a_check_without_yes_or_no_is_flagged(tmp_path, fake, monkeypatch):
+    real = fake.respond
+
+    def no_yes_no(prompt):
+        if "Proposed answer:" in prompt:
+            return FakeGenerator.output("Maybe", [("Maybe", -0.1)])
+        return real(prompt)
+
+    monkeypatch.setattr(fake, "respond", no_yes_no)
+    run_all(tmp_path)
+    scored = [d for d in read(tmp_path / "qwen2.5-3b__mr-qa20-diag-pilot.jsonl") if d["p_yes"] is not None]
+    assert scored and all(d["p_yes"] == 0.5 and d["p_yes_found"] is False for d in scored)
 
 
 def test_every_group_saying_not_found_means_abstain(tmp_path, fake, monkeypatch):
@@ -183,6 +199,15 @@ def test_resume_after_a_half_written_last_line(tmp_path, fake):
     assert len(mr_run.load_records(path)) == 39
     records = read(path)  # the torn line was cut, not glued to the next record
     assert len(records) == 39 and len({r["key"] for r in records}) == 39
+
+
+def test_a_tail_cut_inside_a_multibyte_character_is_skipped(tmp_path):
+    # reduce reads the files directly, without cut_torn_tail, so load_records must survive this alone
+    path = tmp_path / "x.jsonl"
+    good = json.dumps({"key": "a", "attempt": 1}) + "\n"
+    torn = json.dumps({"key": "b", "attempt": 1, "text": "Röntgen"}, ensure_ascii=False).encode("utf-8")
+    path.write_bytes(good.encode("utf-8") + torn[:torn.index("ö".encode("utf-8")) + 1])
+    assert list(mr_run.load_records(path)) == ["a"]
 
 
 def test_a_bad_line_before_the_end_still_raises(tmp_path):

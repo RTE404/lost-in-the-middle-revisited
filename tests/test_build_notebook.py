@@ -38,3 +38,22 @@ def test_empty_files_are_created_without_an_empty_writefile_cell():
     for path in ("litm/__init__.py", "litm/mapreduce/__init__.py", "litm/vendor/__init__.py",
                  "litm/vendor/lost_in_the_middle/__init__.py"):
         assert repr(path) in setup
+
+
+def test_mapreduce_config_needs_no_cell_editing():
+    # The runbook's smoke (--limit) and spec §7's quota fallback (--control-subset) are config values,
+    # and qa30 has a pre-registered guess slot like qa20 and kv300.
+    nb = load_builder().build()
+    code = [c.source for c in nb.cells if c.cell_type == "code"]
+    namespace = {}
+    exec(next(c for c in code if c.startswith("STAGE = ")), namespace)
+    exec(next(c for c in code if "GUESSES = {" in c), namespace)
+    assert namespace["MR_LIMIT"] is None and namespace["MR_CONTROL_SUBSET"] is None
+    assert all("qa30" in g for g in namespace["GUESSES"].values())
+    run_cell = next(c for c in code if c.startswith("STAGES = {"))
+    for limit, subset, expected in ((None, None, []), (5, None, ["--limit", "5"]),
+                                    (None, 500, ["--control-subset", "500"])):
+        ns = {**namespace, "MR_LIMIT": limit, "MR_CONTROL_SUBSET": subset, "STAGE": "none",
+              "PY": "python", "AUTHORS": "/a", "KV_LIMIT": 200, "MR_TASK": "qa20"}
+        exec(run_cell, ns)
+        assert ns["MR_ARGS"][-len(expected):] == expected if expected else "--limit" not in ns["MR_ARGS"]
